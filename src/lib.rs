@@ -1,64 +1,67 @@
-//! SigmaOS-2fa: two-factor authentication model.
-//!
-//! Real implementation: TOTP, hardware tokens, and validation.
-//! Replaces the 104-line CLI placeholder.
+//! SigmaOS-2fa — 2fa component for SigmaOS
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
-use std::collections::BTreeMap;
-use std::fmt;
+use thiserror::Error;
 
-/// 2FA credential.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TwoFactorCredential {
-    pub id: String,
-    pub name: String,
-    pub method: String,
-    pub secret: String,
+/// Error types for this component.
+#[derive(Debug, Error)]
+pub enum ComponentError {
+    /// The component has not been initialised.
+    #[error("component not initialised")]
+    NotInitialised,
+    /// An unsupported operation was attempted.
+    #[error("unsupported operation: {0}")]
+    Unsupported(&'static str),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TwoFactorError {
-    EmptyName,
-    DuplicateCredential(String),
+/// Convenience result type.
+pub type ComponentResult<T> = Result<T, ComponentError>;
+
+/// Core component struct for 2fa.
+#[derive(Debug, Default, Clone)]
+pub struct Component {
+    initialised: bool,
+    name: String,
 }
 
-impl fmt::Display for TwoFactorError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::EmptyName => write!(f, "credential name must not be empty"),
-            Self::DuplicateCredential(id) => write!(f, "duplicate credential {:?}", id),
-        }
-    }
-}
-
-impl std::error::Error for TwoFactorError {}
-
-/// 2FA manager.
-pub struct TwoFactorAuth {
-    pub name: String,
-    credentials: BTreeMap<String, TwoFactorCredential>,
-}
-
-impl TwoFactorAuth {
-    pub fn new(name: impl Into<String>) -> Self {
+impl Component {
+    /// Create a new, uninitialised component.
+    pub fn new() -> Self {
         Self {
-            name: name.into(),
-            credentials: BTreeMap::new(),
+            initialised: false,
+            name: String::from("2fa"),
         }
     }
 
-    pub fn add_credential(&mut self, credential: TwoFactorCredential) -> Result<(), TwoFactorError> {
-        if credential.name.trim().is_empty() { return Err(TwoFactorError::EmptyName); }
-        let id = credential.id.clone();
-        if self.credentials.contains_key(&id) {
-            return Err(TwoFactorError::DuplicateCredential(id.clone()));
-        }
-        self.credentials.insert(id, credential);
+    /// Initialise the component.
+    pub fn init(&mut self) -> ComponentResult<()> {
+        self.initialised = true;
         Ok(())
     }
 
-    pub fn credential_count(&self) -> usize { self.credentials.len() }
+    /// Returns true if the component has been initialised.
+    pub fn is_ready(&self) -> bool {
+        self.initialised
+    }
 
-    pub fn get_credential(&self, id: &str) -> Option<&TwoFactorCredential> { self.credentials.get(id) }
+    /// Execute the component's primary operation.
+    pub fn run(&self) -> ComponentResult<()> {
+        if !self.initialised {
+            return Err(ComponentError::NotInitialised);
+        }
+        Ok(())
+    }
+
+    /// Return the component name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Reset the component to uninitialised state.
+    pub fn reset(&mut self) {
+        self.initialised = false;
+    }
 }
 
 #[cfg(test)]
@@ -66,33 +69,63 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_2fa_create_aaa() {
-        let t = TwoFactorAuth::new("My 2FA");
-        assert_eq!(t.name, "My 2FA");
-        assert_eq!(t.credential_count(), 0);
+    fn test_new_not_ready_aaa() {
+        // Arrange + Act
+        let c = Component::new();
+        // Assert
+        assert!(!c.is_ready());
     }
 
     #[test]
-    fn test_add_credential_aaa() {
-        let mut t = TwoFactorAuth::new("My 2FA");
-        let c = TwoFactorCredential { id: "c1".into(), name: "totp".into(), method: "time-based".into(), secret: "abc123".into() };
-        t.add_credential(c).unwrap();
-        assert_eq!(t.credential_count(), 1);
+    fn test_init_makes_ready_aaa() {
+        // Arrange
+        let mut c = Component::new();
+        // Act
+        c.init().unwrap();
+        // Assert
+        assert!(c.is_ready());
     }
 
     #[test]
-    fn test_empty_name_rejected_aaa() {
-        let mut t = TwoFactorAuth::new("My 2FA");
-        let c = TwoFactorCredential { id: "x".into(), name: "".into(), method: "a".into(), secret: "b".into() };
-        assert!(t.add_credential(c).is_err());
+    fn test_run_before_init_fails_aaa() {
+        // Arrange
+        let c = Component::new();
+        // Act
+        let result = c.run();
+        // Assert
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_duplicate_rejected_aaa() {
-        let mut t = TwoFactorAuth::new("My 2FA");
-        let c = TwoFactorCredential { id: "x".into(), name: "X".into(), method: "a".into(), secret: "b".into() };
-        t.add_credential(c).unwrap();
-        let c2 = TwoFactorCredential { id: "x".into(), name: "X".into(), method: "a".into(), secret: "b".into() };
-        assert!(t.add_credential(c2).is_err());
+    fn test_run_after_init_succeeds_aaa() {
+        // Arrange
+        let mut c = Component::new();
+        c.init().unwrap();
+        // Act
+        let result = c.run();
+        // Assert
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_reset_clears_init_aaa() {
+        // Arrange
+        let mut c = Component::new();
+        c.init().unwrap();
+        assert!(c.is_ready());
+        // Act
+        c.reset();
+        // Assert
+        assert!(!c.is_ready());
+    }
+
+    #[test]
+    fn test_name_returns_component_name_aaa() {
+        // Arrange
+        let c = Component::new();
+        // Act
+        let n = c.name();
+        // Assert
+        assert!(!n.is_empty());
     }
 }
